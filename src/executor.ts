@@ -242,6 +242,8 @@ export class PolyglotExecutor {
 
   /** PIDs of backgrounded processes — killed on cleanup to prevent zombies. */
   #backgroundedPids = new Set<number>();
+  /** Sandbox dirs of backgrounded runs — removed when the process exits or is killed. */
+  #backgroundedTmpDirs = new Set<string>();
 
   constructor(opts?: {
     hardCapBytes?: number;
@@ -277,6 +279,8 @@ export class PolyglotExecutor {
       } catch { /* already dead */ }
     }
     this.#backgroundedPids.clear();
+    for (const dir of this.#backgroundedTmpDirs) cleanupTmpDir(dir);
+    this.#backgroundedTmpDirs.clear();
   }
 
   async execute(opts: ExecuteOptions): Promise<ExecResult> {
@@ -289,7 +293,13 @@ export class PolyglotExecutor {
 
       // Rust: compile then run
       if (cmd[0] === "__rust_compile_run__") {
-        return await this.#compileAndRun(filePath, tmpDir, timeout);
+        // Returning from inside the try skipped the cleanup below, leaking
+        // the sandbox (source + compiled binary) on every successful run.
+        try {
+          return await this.#compileAndRun(filePath, tmpDir, timeout);
+        } finally {
+          cleanupTmpDir(tmpDir);
+        }
       }
 
       // Every language runs in the project directory so git, relative paths,
@@ -478,6 +488,7 @@ export class PolyglotExecutor {
           // Background mode: detach process, return partial output, keep running
           resolved = true;
           if (proc.pid) this.#backgroundedPids.add(proc.pid);
+          this.#backgroundedTmpDirs.add(sandboxTmpDir);
           proc.unref();
           // Do NOT destroy stdout/stderr — closing the read end of the pipe
           // sends SIGPIPE to the child on its next write, killing it.
@@ -538,7 +549,15 @@ export class PolyglotExecutor {
 
       proc.on("close", (exitCode) => {
         clearTimeout(timer);
-        if (resolved) return; // Already resolved by background timeout
+        if (resolved) {
+          // Already resolved by background timeout. The detached process has
+          // now exited, so its sandbox dir is no longer needed.
+          if (this.#backgroundedTmpDirs.delete(sandboxTmpDir)) {
+            if (proc.pid) this.#backgroundedPids.delete(proc.pid);
+            cleanupTmpDir(sandboxTmpDir);
+          }
+          return;
+        }
         const rawStdout = Buffer.concat(stdoutChunks).toString("utf-8");
         let rawStderr = Buffer.concat(stderrChunks).toString("utf-8");
 

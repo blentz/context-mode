@@ -1817,6 +1817,53 @@ describe("Background Mode", () => {
   }, 10_000);
 });
 
+describe("Sandbox dir cleanup", () => {
+  const waitGone = async (dir: string, ms = 3000) => {
+    const end = Date.now() + ms;
+    while (existsSync(dir) && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
+    return !existsSync(dir);
+  };
+
+  test.runIf(runtimes.rust)("Rust run removes its sandbox (source + binary)", async () => {
+    const r = await executor.execute({
+      language: "rust",
+      code: `fn main() { println!("{}", std::env::current_exe().unwrap().parent().unwrap().display()); }`,
+    });
+    assert.equal(r.exitCode, 0, `stderr: ${r.stderr}`);
+    const dir = r.stdout.trim();
+    assert.ok(dir.includes(".ctx-mode-"), `unexpected sandbox: ${dir}`);
+    assert.equal(existsSync(dir), false, `Rust sandbox leaked: ${dir}`);
+  }, 90_000);
+
+  test("backgrounded run removes its sandbox when the process exits", async () => {
+    const bgExecutor = new PolyglotExecutor({ runtimes });
+    const r = await bgExecutor.execute({
+      language: "javascript",
+      code: `console.log(require('path').dirname(process.argv[1])); setTimeout(() => {}, 800);`,
+      timeout: 300,
+      background: true,
+    });
+    assert.equal(r.backgrounded, true);
+    const dir = r.stdout.trim();
+    assert.ok(existsSync(dir), "sandbox must survive while the process runs");
+    assert.ok(await waitGone(dir), `sandbox leaked after exit: ${dir}`);
+  }, 10_000);
+
+  test("cleanupBackgrounded removes the sandbox of a killed process", async () => {
+    const bgExecutor = new PolyglotExecutor({ runtimes });
+    const r = await bgExecutor.execute({
+      language: "javascript",
+      code: `console.log(require('path').dirname(process.argv[1])); setInterval(() => {}, 1000);`,
+      timeout: 300,
+      background: true,
+    });
+    const dir = r.stdout.trim();
+    assert.ok(existsSync(dir));
+    bgExecutor.cleanupBackgrounded();
+    assert.ok(await waitGone(dir), `sandbox leaked after cleanupBackgrounded: ${dir}`);
+  }, 10_000);
+});
+
 describe("hardCapBytes Enforcement", () => {
   test("kills process when combined output exceeds byte cap", async () => {
     const cappedExecutor = new PolyglotExecutor({
