@@ -259,6 +259,31 @@ describe("normalizeHooksOnStartup", () => {
     expect(readFileSync(hooksPath, "utf-8")).toBe(original);
   });
 
+  test("no-op inside a git checkout (local directory marketplace)", () => {
+    const dir = makeTmp();
+    mkdirSync(join(dir, ".git"), { recursive: true });
+    mkdirSync(join(dir, "hooks"), { recursive: true });
+    mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+    const hooksPath = join(dir, "hooks", "hooks.json");
+    const pluginPath = join(dir, ".claude-plugin", "plugin.json");
+    const hooks =
+      '{"hooks":{"X":[{"hooks":[{"command":"node \\"${CLAUDE_PLUGIN_ROOT}/x.mjs\\""}]}]}}';
+    const plugin =
+      '{"mcpServers":{"context-mode":{"command":"node","args":["${CLAUDE_PLUGIN_ROOT}/start.mjs"]}}}';
+    writeFileSync(hooksPath, hooks);
+    writeFileSync(pluginPath, plugin);
+
+    normalizeHooksOnStartup({
+      pluginRoot: dir,
+      nodePath: "/usr/bin/node",
+      jsRuntimePath: "/opt/bun/bin/bun",
+      platform: "linux",
+    });
+
+    expect(readFileSync(hooksPath, "utf-8")).toBe(hooks);
+    expect(readFileSync(pluginPath, "utf-8")).toBe(plugin);
+  });
+
   test("normalizes hooks.json on Linux (bare node not in PATH for /bin/sh)", () => {
     const dir = makeTmp();
     const hooksPath = join(dir, "hooks", "hooks.json");

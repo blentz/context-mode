@@ -32,6 +32,16 @@ function fwd(p) {
 }
 
 /**
+ * A git checkout is a dev install (e.g. a local directory marketplace). Its
+ * hooks.json / plugin.json are source-tracked: baking absolute runtime paths
+ * into them dirties the tree and fails assert-asymmetric-drift. Claude Code
+ * expands ${CLAUDE_PLUGIN_ROOT} itself, so leave checkouts untouched.
+ */
+function isDevCheckout(pluginRoot) {
+  try { return existsSync(resolve(pluginRoot, ".git")); } catch { return false; }
+}
+
+/**
  * Extract the X.Y.Z version segment from a pluginRoot under the context-mode
  * cache layout. Returns null when running from npm-global, a dev checkout, or
  * any layout that does not match the `<…>/context-mode/context-mode/<v>(/…)?`
@@ -261,6 +271,7 @@ export function normalizeHooksJsonOnly({ pluginRoot, nodePath, jsRuntimePath, pl
   const hasBunSwap = jsRuntimePath && jsRuntimePath !== nodePath;
   if (isPlatformGated && !hasBunSwap) return;
   if (!pluginRoot || !effectiveRuntime) return;
+  if (isDevCheckout(pluginRoot)) return;
 
   try {
     const hooksPath = resolve(pluginRoot, "hooks", "hooks.json");
@@ -304,6 +315,7 @@ export function normalizeHooksOnStartup({ pluginRoot, nodePath, jsRuntimePath, p
   // exclusively by the hooks.json branch above.
   if (platform !== "win32" && platform !== "linux") return;
   if (!pluginRoot || !nodePath) return;
+  if (isDevCheckout(pluginRoot)) return;
 
   // .claude-plugin/plugin.json
   try {
