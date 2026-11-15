@@ -1717,8 +1717,12 @@ describe("Temp Cleanup Resilience", () => {
         code: `
           const fs = require('fs');
           const path = require('path');
+          // Write into the executor's sandbox temp dir (where the script
+          // lives), not process.cwd() — that is the project root and the
+          // files would be left behind in the repo.
+          const sandbox = path.dirname(process.argv[1]);
           for (let j = 0; j < 3; j++) {
-            fs.writeFileSync(path.join(process.cwd(), 'f' + j + '.tmp'), 'data');
+            fs.writeFileSync(path.join(sandbox, 'f' + j + '.tmp'), 'data');
           }
           console.log("ok-${i}");
         `,

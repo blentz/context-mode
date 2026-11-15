@@ -5,6 +5,8 @@ const isCI = !!process.env.CI;
 export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
+    // One TMPDIR + HOME per run, removed afterwards (tests/global-sandbox.ts).
+    globalSetup: ["tests/global-sandbox.ts"],
     testTimeout: 30_000,
     // afterAll cleanup loops over many better-sqlite3 handles on Windows
     // and can exceed vitest's default 10s hookTimeout under fork contention
