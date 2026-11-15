@@ -67,6 +67,7 @@ import { buildNodeCommand, type HookAdapter, type PlatformId, isInProcessPluginP
 import { detectPlatform, getSessionDirSegments } from "./adapters/detect.js";
 import { parseCodexContextModePluginRoot } from "./adapters/codex/index.js";
 import { getHookScriptPaths } from "./util/hook-config.js";
+import { consumeCwdHandoff } from "./util/cwd-handoff.js";
 import { stripJsonComments } from "./util/jsonc.js";
 import { resolveClaudeConfigDir } from "./util/claude-config.js";
 import { resolveProjectDir } from "./util/project-dir.js";
@@ -1809,7 +1810,10 @@ __cm_main().catch(e=>{console.error(e);process.exitCode=1});${background ? '\nse
 })(typeof require!=='undefined'?require:null);`;
       }
       const effTimeout = resolveExecTimeout(timeout);
-      const result = await executor.execute({ language, code: instrumentedCode, timeout: effTimeout, background, cwd });
+      // #756: the PreToolUse hook hands over the session cwd out-of-band
+      // (src/util/cwd-handoff.ts) instead of rewriting this call's input.
+      const effCwd = cwd ?? (language === "shell" ? consumeCwdHandoff("execute", { language, code }) : undefined);
+      const result = await executor.execute({ language, code: instrumentedCode, timeout: effTimeout, background, cwd: effCwd });
 
       // Echo the executed source code before stdout so users can audit
       // and tooling can block command patterns (Issues #717 + #736).
@@ -4269,7 +4273,7 @@ EXAMPLE: ctx_batch_execute(
           timeout: effTimeout,
           concurrency,
           nodeOptsPrefix,
-          cwd,
+          cwd: cwd ?? consumeCwdHandoff("batch", { commands }),
           onFsBytes: (bytes) => { sessionStats.bytesSandboxed += bytes; },
         },
         executor,

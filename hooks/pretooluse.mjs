@@ -176,6 +176,10 @@ await runHook(async () => {
     agentPromptInjection: detectPlatformFromEnv() !== "claude-code",
   });
   const response = formatDecision("claude-code", decision);
+  if (decision?.cwdHandoff) {
+    const { writeCwdHandoff } = await import("./core/cwd-handoff.mjs");
+    writeCwdHandoff(decision.cwdHandoff.kind, toolInput, decision.cwdHandoff.cwd);
+  }
 
   // ─── Write latency marker for cross-hook timing (Category 27) ───
   // Marker writes MUST happen before stdout write — stdout is the last action

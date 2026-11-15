@@ -35,6 +35,7 @@ function rmSyncRobust(dir: string) {
   } catch {}
 }
 import { tmpdir } from "node:os";
+import { consumeCwdHandoff } from "../../src/util/cwd-handoff.js";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Hook Integration Tests -- pretooluse.mjs
@@ -456,6 +457,9 @@ describe("Security Policy Enforcement", () => {
     secEnv = { HOME: ISOLATED_HOME, CLAUDE_PROJECT_DIR: MOCK_PROJECT_DIR };
   });
 
+  // The hook subprocess runs with HOME=ISOLATED_HOME, so its handoff lands there.
+  const isolatedHandoffDir = () => join(ISOLATED_HOME, ".cache", "context-mode", "cwd-handoff");
+
   afterAll(() => {
     try { rmSync(ISOLATED_HOME, { recursive: true, force: true }); } catch {}
     try { rmSync(MOCK_PROJECT_DIR, { recursive: true, force: true }); } catch {}
@@ -517,7 +521,7 @@ describe("Security Policy Enforcement", () => {
     assert.equal(result.stdout, "", "Non-shell language should passthrough");
   });
 
-  test("MCP execute + shell pins cwd from hook input over stale CLAUDE_PROJECT_DIR (#756)", () => {
+  test("MCP execute + shell hands cwd from hook input over stale CLAUDE_PROJECT_DIR to the server without rewriting input (#756)", () => {
     const mainRepo = mkdtempSync(join(tmpdir(), "ctx-756-main-"));
     const worktree = mkdtempSync(join(tmpdir(), "ctx-756-worktree-"));
     try {
@@ -530,9 +534,10 @@ describe("Security Policy Enforcement", () => {
         { ...secEnv, CLAUDE_PROJECT_DIR: mainRepo },
       );
       assert.equal(result.exitCode, 0);
-      const parsed = JSON.parse(result.stdout);
-      assert.equal(parsed.hookSpecificOutput.updatedInput.cwd, worktree);
-      assert.equal(parsed.hookSpecificOutput.updatedInput.code, "pwd");
+      // Input is never rewritten (auto-mode classifier rejects that); the cwd
+      // goes to the MCP server through the handoff file instead.
+      assert.equal(result.stdout, "");
+      assert.equal(consumeCwdHandoff("execute", { language: "shell", code: "pwd" }, Date.now(), isolatedHandoffDir()), worktree);
     } finally {
       rmSyncRobust(mainRepo);
       rmSyncRobust(worktree);
@@ -596,7 +601,7 @@ describe("Security Policy Enforcement", () => {
     assert.equal(parsed.hookSpecificOutput.permissionDecision, "deny");
   });
 
-  test("MCP batch_execute with allowed commands pins cwd from hook input (#756)", () => {
+  test("MCP batch_execute with allowed commands hands cwd to the server without rewriting input (#756)", () => {
     const worktree = mkdtempSync(join(tmpdir(), "ctx-756-batch-worktree-"));
     try {
       const result = runHook(
@@ -613,8 +618,14 @@ describe("Security Policy Enforcement", () => {
         secEnv,
       );
       assert.equal(result.exitCode, 0);
-      const parsed = JSON.parse(result.stdout);
-      assert.equal(parsed.hookSpecificOutput.updatedInput.cwd, worktree);
+      assert.equal(result.stdout, "");
+      assert.equal(
+        consumeCwdHandoff("batch", { commands: [
+          { label: "list", command: "ls -la" },
+          { label: "git", command: "git log --oneline -5" },
+        ] }, Date.now(), isolatedHandoffDir()),
+        worktree,
+      );
     } finally {
       rmSyncRobust(worktree);
     }

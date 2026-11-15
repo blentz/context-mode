@@ -5,6 +5,8 @@
  * Decision types:
  * - { action: "deny", reason: string }
  * - { action: "ask" }
+ * - { action: "passthrough", cwdHandoff: { kind, cwd } } — no output; the
+ *   adapter hands cwd to the MCP server out-of-band (hooks/core/cwd-handoff.mjs)
  * - { action: "modify", updatedInput: object }
  * - { action: "context", additionalContext: string }
  * - null (passthrough)
@@ -946,8 +948,10 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform, sessi
         }
       }
     }
+    // #756 cwd pin, delivered out-of-band (hooks/core/cwd-handoff.mjs):
+    // rewriting the input trips Claude Code's auto-mode classifier.
     if (toolInput.language === "shell" && shouldPinClaudeExecutorCwd && typeof toolInput.cwd !== "string") {
-      return { action: "modify", updatedInput: { ...toolInput, cwd: projectDir } };
+      return { action: "passthrough", cwdHandoff: { kind: "execute", cwd: projectDir } };
     }
     return null;
   }
@@ -1001,7 +1005,7 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform, sessi
       }
     }
     if (shouldPinClaudeExecutorCwd && typeof toolInput.cwd !== "string") {
-      return { action: "modify", updatedInput: { ...toolInput, cwd: projectDir } };
+      return { action: "passthrough", cwdHandoff: { kind: "batch", cwd: projectDir } };
     }
     return null;
   }

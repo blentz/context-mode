@@ -715,11 +715,11 @@ describe("routePreToolUse", () => {
         "/worktree/repo",
         "claude-code",
       );
-      expect(result?.action).toBe("modify");
-      expect(result?.updatedInput).toEqual({
-        language: "shell",
-        code: "pwd",
-        cwd: "/worktree/repo",
+      // Never "modify": Claude Code's auto-mode classifier refuses calls whose
+      // input a hook changed. The cwd travels out-of-band instead.
+      expect(result).toEqual({
+        action: "passthrough",
+        cwdHandoff: { kind: "execute", cwd: "/worktree/repo" },
       });
     });
 
@@ -730,10 +730,9 @@ describe("routePreToolUse", () => {
         "/worktree/repo",
         "claude-code",
       );
-      expect(result?.action).toBe("modify");
-      expect(result?.updatedInput).toEqual({
-        commands: [{ label: "branch", command: "git rev-parse --abbrev-ref HEAD" }],
-        cwd: "/worktree/repo",
+      expect(result).toEqual({
+        action: "passthrough",
+        cwdHandoff: { kind: "batch", cwd: "/worktree/repo" },
       });
     });
 
